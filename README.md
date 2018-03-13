@@ -1,2 +1,16 @@
-# NLP
-Mercari Price Suggestion Challenge
+# Kaggle Mercari Price Suggestion Challenge
+
+It can be hard to know how much something’s really worth. Small details can mean big differences in pricing. For example, one of these sweaters cost $335 and the other cost $9.99. Can you guess which one’s which?
+![]{https://storage.googleapis.com/kaggle-media/competitions/mercari/mercari_comparison.png}
+Product pricing gets even harder at scale, considering just how many products are sold online. Clothing has strong seasonal pricing trends and is heavily influenced by brand names, while electronics have fluctuating prices based on product specs.
+
+Mercari, Japan’s biggest community-powered shopping app, knows this problem deeply. They’d like to offer pricing suggestions to sellers, but this is tough because their sellers are enabled to put just about anything, or any bundle of things, on Mercari's marketplace.
+
+In this competition, Mercari’s challenging you to build an algorithm that automatically suggests the right product prices. You’ll be provided user-inputted text descriptions of their products, including details like product category name, brand name, and item condition.
+
+# #1 solution
+The model is a pretty standard MLP that works on sparse features for efficiency. It was one of the strongest models both for me and for Paweł before the merge, I did it in tensorflow and Paweł did it in Cython (!). After the merge we implemented a more efficient version in mxnet. Here it's implemented in keras - I found out that keras is fine for such model only a few days ago, from this comment by @Pavel (Pasha) Gyrya: https://www.kaggle.com/luisgarcia/keras-nn-with-parallelized-batch-training/comments#271137 - without it I wouldn't try writing a short kernel like this.
+
+This model is surprisingly good for this particular dataset, both on it's own, but especially in the ensemble: it has huge variance and each single model is tuned to overfit to a different local minima, but when averaged, they give a really good result. It seems to capture feature interactions which look really important here, and it's fast to train. In order to make it efficient, it's important to use one core for each model and train them in parallel, it's much faster than using all cores for one model, especially for models working on sparse data. It's a bit tricky to make it work with threading, the key here is undocumented use_per_session_threads=1 argument for tf config. Threading makes code simpler and less memory-hungry, but for mxnet we had to use multiprocessing. Another important bit is doubling of the batch size after each epoch: this makes the model faster, and also allows it to overfit more. Also, the bigger is the first hidden layer size, the better. Apart from that, we had a few other tricks with the model but I tried to keep it short in the kernel.
+
+The dataset: Paweł found out that it's really good to merge several features (category, description, etc.) into one field, so here for simplicity I do just that. In our submission we have many more interesting ideas and features that improve the score further, but it would be better if I let Paweł describe them, in the kernel I opted to make this part as simple as possible. Another cool idea that Paweł came up with was to make ensemble more diverse by creating a binary version of each dataset: it means after we get a sparse matrix, we clip all non-zero values to 1. This is almost the same as using a CountVectorizer with binary=True, but massively faster, because we don't need to re-process the data. In our submission we do it on the fly during training, but here for simplicity I just do X.astype(bool).astype(float), making a copy.
